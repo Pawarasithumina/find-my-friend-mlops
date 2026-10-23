@@ -1,0 +1,48 @@
+schema: '2.0'
+stages:
+  validate:
+    cmd: python src/data/validate_dataset.py
+    deps:
+    - path: data/raw
+      hash: md5
+      md5: 0144f2820c732ec22bf77e00618f76cb.dir
+      size: 527938316
+      nfiles: 209
+    - path: src/data/validate_dataset.py
+      hash: md5
+      md5: 2a3dda088e92fd546dfefe5389d4d987
+      size: 3150
+    outs:
+    - path: data/processed/manifest.csv
+      hash: md5
+      md5: 3c4e135ef11307e48540a9313f3f90db
+      size: 28916
+    - path: data/processed/validation_report.json
+      hash: md5
+      md5: 6da249c61a5339722c861262eb8108a9
+      size: 212
+  create_tensors:
+    cmd: python src/data/create_tensors.py
+    deps:
+    - path: data/processed/manifest.csv
+      hash: md5
+      md5: 3c4e135ef11307e48540a9313f3f90db
+      size: 28916
+    - path: src/data/create_tensors.py
+      hash: md5
+      md5: 69e928aac5d6a7930dd6fbbd5503b75e
+      size: 4594
+    outs:
+    - path: data/processed/split_manifest.csv
+      hash: md5
+      md5: ae1def5ed7230550f62c522edb7bc6d4
+      size: 29872
+    - path: data/processed/tensor_metadata.json
+      hash: md5
+      md5: e552969e2770f2704fc2cec13ed7e7d4
+      size: 351
+    - path: data/tensors
+      hash: md5
+      md5: 0b1de9ba396b97acd839f29678e693b7.dir
+      size: 31479847
+      nfiles: 3

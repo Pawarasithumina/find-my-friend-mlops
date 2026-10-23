@@ -1,0 +1,4 @@
+[core]
+    remote = rustfs
+['remote "rustfs"']
+    url = s3://faceops-datasets/dvc

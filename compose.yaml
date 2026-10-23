@@ -1,0 +1,60 @@
+
+services:
+  rustfs:
+    image: rustfs/rustfs:latest
+    restart: unless-stopped
+
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+
+    environment:
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:?Set access key}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:?Set secret key}
+      RUSTFS_ADDRESS: ":9000"
+      RUSTFS_CONSOLE_ADDRESS: ":9001"
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_OBS_LOGGER_LEVEL: "error"
+
+    volumes:
+      - rustfs_data:/data
+
+    command: ["/data"]
+
+
+
+# ====================================
+  # POSTGRESQL DATABASE
+  # ====================================
+
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+
+    ports:
+      - "127.0.0.1:5433:5432"
+
+    environment:
+      POSTGRES_USER: faceops_admin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set password}
+      POSTGRES_DB: faceops_db
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/01-init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -h 127.0.0.1 -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+# ====================================
+# PERSISTENT STORAGE
+# ====================================
+
+volumes:
+  rustfs_data:
+  postgres_data:

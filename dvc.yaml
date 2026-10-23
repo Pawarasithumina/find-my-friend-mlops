@@ -1,0 +1,21 @@
+
+stages:
+
+  validate:
+    cmd: python src/data/validate_dataset.py
+    deps:
+      - data/raw
+      - src/data/validate_dataset.py
+    outs:
+      - data/processed/manifest.csv
+      - data/processed/validation_report.json
+
+  create_tensors:
+    cmd: python src/data/create_tensors.py
+    deps:
+      - data/processed/manifest.csv
+      - src/data/create_tensors.py
+    outs:
+      - data/tensors
+      - data/processed/split_manifest.csv
+      - data/processed/tensor_metadata.json
