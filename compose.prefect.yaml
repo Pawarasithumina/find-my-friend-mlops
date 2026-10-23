@@ -1,0 +1,35 @@
+services:
+  prefect:
+    image: prefecthq/prefect:3-latest
+    restart: unless-stopped
+
+    ports:
+      - "127.0.0.1:4200:4200"
+
+    environment:
+      PREFECT_SERVER_DATABASE_CONNECTION_URL: "postgresql+asyncpg://faceops_admin:${POSTGRES_PASSWORD:?Set password}@postgres:5432/prefect_db"
+      PREFECT_SERVER_UI_API_URL: "http://127.0.0.1:4200/api"
+      PREFECT_API_URL: "http://127.0.0.1:4200/api"
+      PREFECT_SERVER_ANALYTICS_ENABLED: "false"
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    command:
+      - prefect
+      - server
+      - start
+      - --host
+      - 0.0.0.0
+
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4200/api/health', timeout=5)"
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
