@@ -1,5 +1,9 @@
 
 services:
+
+  # ==========================================
+  # SERVICE 1: RUSTFS OBJECT STORAGE
+  # ==========================================
   rustfs:
     image: rustfs/rustfs:latest
     restart: unless-stopped
@@ -22,11 +26,9 @@ services:
     command: ["/data"]
 
 
-
-# ====================================
-  # POSTGRESQL DATABASE
-  # ====================================
-
+  # ==========================================
+  # SERVICE 2: POSTGRESQL DATABASE
+  # ==========================================
   postgres:
     image: postgres:17
     restart: unless-stopped
@@ -51,10 +53,64 @@ services:
       timeout: 5s
       retries: 10
 
-# ====================================
-# PERSISTENT STORAGE
-# ====================================
 
+  # ==========================================
+  # SERVICE 3: MLFLOW TRACKING SERVER
+  # ==========================================
+  mlflow:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.mlflow
+
+    restart: unless-stopped
+
+    ports:
+      - "127.0.0.1:5050:5000"
+
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set password}
+
+      AWS_ACCESS_KEY_ID: ${RUSTFS_ACCESS_KEY:?Set access key}
+      AWS_SECRET_ACCESS_KEY: ${RUSTFS_SECRET_KEY:?Set secret key}
+      AWS_DEFAULT_REGION: us-east-1
+
+      MLFLOW_S3_ENDPOINT_URL: http://rustfs:9000
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rustfs:
+        condition: service_started
+
+    command: >-
+      sh -ec 'exec mlflow server
+      --host 0.0.0.0
+      --port 5000
+      --backend-store-uri
+      "postgresql+psycopg2://faceops_admin:$${POSTGRES_PASSWORD}@postgres:5432/mlflow_db"
+      --artifacts-destination
+      s3://faceops-mlflow/artifacts
+      --serve-artifacts
+      --allowed-hosts
+      "localhost:*,127.0.0.1:*,mlflow:*"'
+
+
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+
+# ==========================================
+# PERSISTENT DOCKER VOLUMES
+# ==========================================
 volumes:
   rustfs_data:
   postgres_data:
+
