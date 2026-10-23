@@ -23,3 +23,7 @@ mlartifacts/
 /reports/private_audit/
 
 /reports/private_audit/
+
+/data/optuna/
+
+/reports/private_evaluation/

@@ -1,0 +1,25 @@
+services:
+  serving:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.serving
+    ports:
+      - '127.0.0.1:8000:8000'
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      FACEOPS_S3_ENDPOINT: http://rustfs:9000
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:?Set credentials}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:?Set credentials}
+      FACEOPS_LOW_CONFIDENCE: '0.60'
+    depends_on:
+      mlflow:
+        condition: service_healthy
+      rustfs:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD', 'python', '-c', "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=10)"]
+      interval: 15s
+      timeout: 10s
+      retries: 15
+      start_period: 45s

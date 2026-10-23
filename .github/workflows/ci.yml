@@ -1,0 +1,51 @@
+name: FaceOps CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Source, configuration, and model contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      POSTGRES_PASSWORD: ci-only-nonsecret-password
+      RUSTFS_ACCESS_KEY: ci-only-key
+      RUSTFS_SECRET_KEY: ci-only-secret
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+      - name: Configure Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify Python and Bash syntax
+        run: |
+          python -m compileall -q src orchestration desktop scripts tests
+          find scripts -maxdepth 1 -name '*.sh' -type f -print0 | xargs -0 -r -n 1 bash -n
+      - name: Validate Docker Compose definitions (no services started)
+        run: docker compose -f compose.yaml -f compose.prefect.yaml -f compose.serving.yaml config --quiet
+      - name: Install CPU-only model-test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install requests
+      - name: Model input/output contracts
+        env:
+          PYTHONPATH: .
+        run: python tests/test_model_shapes.py
+      - name: Desktop API client unit tests (mocked network)
+        run: python -m unittest tests.test_desktop_client -v
+      - name: Check no private dataset or credentials are tracked
+        shell: bash
+        run: |
+          if git ls-files | grep -E '^(data/raw/|data/tensors/|data/processed/|data/optuna/|reports/private_|\.env$|\.dvc/config\.local$)'; then
+            echo 'ERROR: Private data or secrets appear in the Git index.' >&2
+            exit 1
+          fi
