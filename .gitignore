@@ -1,0 +1,20 @@
+# Private face datasets and generated tensors
+/data/processed/
+/data/tensors/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Local runtime files
+mlruns/
+mlartifacts/
+*.db
+*.sqlite
+*.sqlite3
