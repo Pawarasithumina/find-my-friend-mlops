@@ -1,186 +1,231 @@
 
 from pathlib import Path
-from collections import Counter
+from collections import Counter, defaultdict
 from PIL import Image, ImageOps
-from sklearn.model_selection import train_test_split
+import re
+import json
 
 import numpy as np
 import pandas as pd
 import torch
-import json
-
-# ======================================
-# CONFIGURATION
-# ======================================
 
 ROOT = Path(__file__).resolve().parents[2]
-
 MANIFEST = ROOT / "data/processed/manifest.csv"
-TENSOR_DIR = ROOT / "data/tensors"
+OUTPUT_DIR = ROOT / "data/tensors"
 PROCESSED_DIR = ROOT / "data/processed"
 
 IMAGE_SIZE = 224
 SEED = 42
 
-CLASS_NAMES = [
-    "pawara",
-    "uchitha",
-    "dhamith",
-    "unknown"
-]
-
-CLASS_TO_IDX = {
-    name: idx
-    for idx, name in enumerate(CLASS_NAMES)
+CLASSES = {
+    "pawara": 0,
+    "uchitha": 1,
+    "dhamith": 2,
+    "unknown": 3
 }
 
-TENSOR_DIR.mkdir(parents=True, exist_ok=True)
+CLASS_NAMES = list(CLASSES)
 
-# ======================================
-# LOAD MANIFEST
-# ======================================
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-print("\n===== FACEOPS TENSOR PIPELINE =====")
+print("\n===== FACEOPS IMPROVED TENSOR PIPELINE =====")
 
 df = pd.read_csv(MANIFEST)
 
-assert len(df) > 0, "Manifest is empty"
-assert df["path"].is_unique, "Duplicate paths found"
+assert df["path"].is_unique
 
 for _, row in df.iterrows():
-    expected = CLASS_TO_IDX[row["class_name"]]
-    assert int(row["label"]) == expected, (
-        f"Incorrect label: {row['path']}"
+    assert int(row["label"]) == CLASSES[row["class_name"]]
+
+
+def capture_information(path):
+    """Extract session ID and chronological burst frame."""
+    stem = Path(path).stem
+
+    match = re.match(
+        r"^(.*?)[_-]?TIMEBURST(\d+)$",
+        stem,
+        re.IGNORECASE
     )
 
-print(f"Total images: {len(df)}")
+    if match:
+        return match.group(1), int(match.group(2))
 
-# ======================================
-# STRATIFIED DATASET SPLIT
-# ======================================
+    return f"unverified:{stem}", 0
 
-train_df, temp_df = train_test_split(
-    df,
-    test_size=0.30,
-    stratify=df["label"],
-    random_state=SEED
-)
-
-val_df, test_df = train_test_split(
-    temp_df,
-    test_size=0.50,
-    stratify=temp_df["label"],
-    random_state=SEED
-)
 
 splits = {
-    "train": train_df,
-    "val": val_df,
-    "test": test_df
+    "train": [],
+    "val": [],
+    "test": []
 }
 
-# Ensure that no image path appears
-# in multiple datasets.
-all_paths = []
+# ==============================================
+# CHRONOLOGICAL AND GROUP-AWARE SPLITTING
+# ==============================================
 
-for subset in splits.values():
-    all_paths.extend(subset["path"].tolist())
+for class_name in CLASS_NAMES:
 
+    class_rows = df[
+        df["class_name"] == class_name
+    ].to_dict("records")
+
+    # Sort by session and burst frame number.
+    class_rows.sort(
+        key=lambda row: (
+            *capture_information(row["path"]),
+            row["path"]
+        )
+    )
+
+    if class_name != "unknown":
+
+        n = len(class_rows)
+        n_train = round(n * 0.70)
+        n_val = round(n * 0.15)
+
+        splits["train"].extend(
+            class_rows[:n_train]
+        )
+
+        splits["val"].extend(
+            class_rows[n_train:n_train + n_val]
+        )
+
+        splits["test"].extend(
+            class_rows[n_train + n_val:]
+        )
+
+    else:
+
+        # Keep Unknown capture sessions intact.
+        groups = defaultdict(list)
+
+        for row in class_rows:
+            session, _ = capture_information(row["path"])
+            groups[session].append(row)
+
+        sessions = sorted(groups)
+
+        if len(sessions) < 3:
+            raise ValueError(
+                "Need at least 3 Unknown capture sessions "
+                "for group-aware splitting."
+            )
+
+        # Reserve the last two capture sessions
+        # for validation and testing.
+        for session in sessions[:-2]:
+            splits["train"].extend(groups[session])
+
+        splits["val"].extend(
+            groups[sessions[-2]]
+        )
+
+        splits["test"].extend(
+            groups[sessions[-1]]
+        )
+
+        print("Unknown capture groups:", len(sessions))
+
+
+# ==============================================
+# VALIDATE SPLIT INTEGRITY
+# ==============================================
+
+all_rows = sum(splits.values(), [])
+
+all_paths = [row["path"] for row in all_rows]
+
+assert len(all_rows) == len(df)
 assert len(all_paths) == len(set(all_paths))
-assert len(all_paths) == len(df)
+assert set(all_paths) == set(df["path"])
 
-print("\nDataset split:")
-for name, subset in splits.items():
-    print(f"{name}: {len(subset)} images")
+print("\nSplit distribution:")
 
-# ======================================
-# IMAGE TO TENSOR
-# ======================================
+for split_name, rows in splits.items():
+    print(
+        f"{split_name}: {len(rows)} images",
+        dict(Counter(row["class_name"] for row in rows))
+    )
 
-def image_to_tensor(image_path):
-    with Image.open(image_path) as img:
-        # Fix image orientation.
-        img = ImageOps.exif_transpose(img)
 
-        # Convert to RGB.
-        img = img.convert("RGB")
+# ==============================================
+# IMAGE PREPROCESSING
+# ==============================================
 
-        # Preserve aspect ratio using padding.
-        img = ImageOps.pad(
-            img,
+def image_to_tensor(path):
+
+    with Image.open(ROOT / path) as image:
+
+        image = ImageOps.exif_transpose(image)
+        image = image.convert("RGB")
+
+        image = ImageOps.pad(
+            image,
             (IMAGE_SIZE, IMAGE_SIZE),
             method=Image.Resampling.BILINEAR,
             color=(0, 0, 0)
         )
 
         array = np.array(
-            img, dtype=np.uint8, copy=True
+            image,
+            dtype=np.uint8,
+            copy=True
         )
 
-    # HWC -> CHW
-    tensor = torch.from_numpy(array)
-    tensor = tensor.permute(2, 0, 1).contiguous()
+    return torch.from_numpy(array).permute(
+        2, 0, 1
+    ).contiguous()
 
-    return tensor
 
-# ======================================
-# CREATE AND SAVE DATASETS
-# ======================================
+# ==============================================
+# GENERATE PYTORCH DATASETS
+# ==============================================
 
-for split_name, subset in splits.items():
+for split_name, rows in splits.items():
 
-    images = []
-    labels = []
-    paths = []
-
-    for _, row in subset.iterrows():
-        image_path = ROOT / row["path"]
-
-        tensor = image_to_tensor(image_path)
-
-        images.append(tensor)
-        labels.append(int(row["label"]))
-        paths.append(row["path"])
-
-    images = torch.stack(images)
+    images = torch.stack([
+        image_to_tensor(row["path"])
+        for row in rows
+    ])
 
     labels = torch.tensor(
-        labels,
+        [int(row["label"]) for row in rows],
         dtype=torch.long
     )
 
     dataset = {
         "images": images,
         "labels": labels,
-        "paths": paths,
+        "paths": [row["path"] for row in rows],
         "class_names": CLASS_NAMES,
         "image_size": IMAGE_SIZE
     }
 
-    output_path = TENSOR_DIR / f"{split_name}.pt"
+    output = OUTPUT_DIR / f"{split_name}.pt"
+    torch.save(dataset, output)
 
-    torch.save(dataset, output_path)
+    print(
+        f"\n{split_name.upper()}:",
+        images.shape,
+        labels.shape
+    )
 
-    print(f"\n{split_name.upper()} DATASET")
-    print("Images shape:", images.shape)
-    print("Labels shape:", labels.shape)
-    print("Data type:", images.dtype)
-    print("Class distribution:", dict(Counter(labels.tolist())))
-    print("Saved:", output_path)
 
-# ======================================
-# SAVE SPLIT METADATA
-# ======================================
+# ==============================================
+# SAVE METADATA
+# ==============================================
 
-split_manifest = []
+parts = []
 
-for split_name, subset in splits.items():
-    part = subset.copy()
+for split_name, rows in splits.items():
+    part = pd.DataFrame(rows)
     part["split"] = split_name
-    split_manifest.append(part)
+    parts.append(part)
 
 split_manifest = pd.concat(
-    split_manifest,
+    parts,
     ignore_index=True
 )
 
@@ -194,19 +239,23 @@ metadata = {
     "image_size": IMAGE_SIZE,
     "channels": 3,
     "dtype": "uint8",
-    "pixel_range": [0, 255],
     "seed": SEED,
-    "classes": CLASS_TO_IDX,
+    "classes": CLASSES,
+    "strategy": "chronological_known_grouped_unknown",
+    "limitation": (
+        "Known classes have only one capture session. "
+        "Evaluation is not session-independent."
+    ),
     "splits": {
-        name: len(subset)
-        for name, subset in splits.items()
+        name: len(rows)
+        for name, rows in splits.items()
     }
 }
 
-with open(
-    PROCESSED_DIR / "tensor_metadata.json",
-    "w"
-) as f:
-    json.dump(metadata, f, indent=4)
+with (
+    PROCESSED_DIR / "tensor_metadata.json"
+).open("w") as file:
+    json.dump(metadata, file, indent=4)
 
-print("\n===== TENSOR GENERATION COMPLETED =====")
+print("\n===== TENSOR PIPELINE COMPLETED =====")
+

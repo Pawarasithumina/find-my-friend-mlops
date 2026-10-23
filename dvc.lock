@@ -30,19 +30,19 @@ stages:
       size: 28916
     - path: src/data/create_tensors.py
       hash: md5
-      md5: 69e928aac5d6a7930dd6fbbd5503b75e
-      size: 4594
+      md5: 19314ddde15785d1a62ff66d01adb792
+      size: 5655
     outs:
     - path: data/processed/split_manifest.csv
       hash: md5
-      md5: ae1def5ed7230550f62c522edb7bc6d4
-      size: 29872
+      md5: dadeb92dee5b5fc1b795ea43bc8d5618
+      size: 29869
     - path: data/processed/tensor_metadata.json
       hash: md5
-      md5: e552969e2770f2704fc2cec13ed7e7d4
-      size: 351
+      md5: dea80f564c9c393faccef95b9c580a5c
+      size: 460
     - path: data/tensors
       hash: md5
-      md5: 0b1de9ba396b97acd839f29678e693b7.dir
+      md5: c747bfdee2412d0319157429f7d39984.dir
       size: 31479847
       nfiles: 3

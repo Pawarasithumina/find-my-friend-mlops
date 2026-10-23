@@ -18,3 +18,8 @@ mlartifacts/
 *.db
 *.sqlite
 *.sqlite3
+
+# Private face-image audit results
+/reports/private_audit/
+
+/reports/private_audit/
